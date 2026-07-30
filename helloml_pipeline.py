@@ -2,26 +2,22 @@
 from pathlib import Path
 import time
 import warnings
-import os
 
 import cv2
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import joblib
 
 from sklearn.cluster import KMeans
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_predict
+from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.multiclass import OneVsRestClassifier
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from sklearn.exceptions import ConvergenceWarning
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
+# Variables persisted as *.joblib under ARTIFACTS_DIR
 ARTIFACT_KEYS = [
     "X_train", "X_test", "y_train", "y_test",
     "X_proc", "y",
@@ -70,11 +66,12 @@ def load_artifacts(directory, g, keys=None):
 
 def artifacts_exist(directory, required=None):
     directory = Path(directory)
-    required = required or ["X_train", "X_test", "y_train", "y_test", "best_estimators"]
+    required = required or ["X_train", "X_test", "y_train", "y_test", "best_estimators", "grids"]
     return all((directory / f"{k}.joblib").exists() for k in required)
 
 
 def load_dataset(root_path, files_per_folder=1000, seed=42):
+    """Load grayscale images from root_path/0 .. root_path/9."""
     root_path = Path(root_path)
     print(f"Loading data from: {root_path}")
     t0 = time.time()
@@ -103,6 +100,7 @@ def load_dataset(root_path, files_per_folder=1000, seed=42):
 
 
 def binarize_center_resize(imgs, target_size=(28, 28)):
+    """Median blur → KMeans binarize → crop → scale longest side to 20 → center on 28x28."""
     H, W = target_size
     out = np.zeros((len(imgs), H, W), dtype=np.uint8)
     for i, img in enumerate(imgs):
@@ -115,7 +113,7 @@ def binarize_center_resize(imgs, target_size=(28, 28)):
         coords = np.column_stack(np.where(binary > 0))
         if coords.shape[0] > 0:
             x, y, w, h = cv2.boundingRect(binary)
-            crop = binary[y:y+h, x:x+w]
+            crop = binary[y:y + h, x:x + w]
             scale = 20.0 / max(w, h)
             new_w = max(1, int(w * scale))
             new_h = max(1, int(h * scale))
@@ -123,12 +121,49 @@ def binarize_center_resize(imgs, target_size=(28, 28)):
             canvas = np.zeros((H, W), dtype=np.uint8)
             sy = (H - new_h) // 2
             sx = (W - new_w) // 2
-            canvas[sy:sy+new_h, sx:sx+new_w] = resized
+            canvas[sy:sy + new_h, sx:sx + new_w] = resized
             out[i] = canvas
         else:
             out[i] = cv2.resize(binary, (W, H))
     print(f"Preprocessed images: {out.shape}")
     return out
+
+
+def save_processed_images(imgs, labels, out_dir, clear=True):
+    """
+    Write processed uint8 images to out_dir/{digit}/img_XXXXX.png
+    so you can browse them in Dataset/Processed_Data/0..9.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    labels = np.asarray(labels)
+
+    if clear:
+        for digit in range(10):
+            d = out_dir / str(digit)
+            if d.exists():
+                for p in d.iterdir():
+                    if p.is_file():
+                        p.unlink()
+            d.mkdir(parents=True, exist_ok=True)
+        print(f"Cleared existing files under {out_dir}")
+
+    counters = {d: 0 for d in range(10)}
+    t0 = time.time()
+    for img, lab in zip(imgs, labels):
+        digit = int(lab)
+        folder = out_dir / str(digit)
+        folder.mkdir(parents=True, exist_ok=True)
+        idx = counters[digit]
+        path = folder / f"img_{idx:05d}.png"
+        cv2.imwrite(str(path), img)
+        counters[digit] += 1
+
+    total = sum(counters.values())
+    print(f"Saved {total} processed images to {out_dir} in {time.time() - t0:.1f}s")
+    for d in range(10):
+        print(f"  digit {d}: {counters[d]} files")
+    return counters
 
 
 def normalize_flatten_split(imgs, y, test_size=0.20, seed=42):
