@@ -26,6 +26,7 @@ ARTIFACT_KEYS = [
     "X_train", "X_test", "y_train", "y_test",
     "X_proc", "y",
     "best_estimators",
+    "grids",  # full GridSearchCV objects (cv_results_, best_params_, ...)
     "df_cv_all", "df_cv_best", "df_test",
 ]
 
