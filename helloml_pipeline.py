@@ -1,14 +1,16 @@
-"""HelloML helpers: preprocessing, models, save/load."""
+"""HelloML helpers: preprocessing, models, single Pipeline GridSearch, save/load."""
 from pathlib import Path
 import time
 import warnings
 
 import cv2
 import numpy as np
+import pandas as pd
 import joblib
 
 from sklearn.cluster import KMeans
 from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.naive_bayes import GaussianNB
@@ -17,12 +19,13 @@ from sklearn.exceptions import ConvergenceWarning
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
-# Variables persisted as *.joblib under ARTIFACTS_DIR
+# Persisted under ARTIFACTS_DIR as *.joblib
+# grid = one large GridSearchCV over a Pipeline (all models + params)
 ARTIFACT_KEYS = [
     "X_train", "X_test", "y_train", "y_test",
     "X_proc", "y",
-    "best_estimators",
-    "grids",  # full GridSearchCV objects (cv_results_, best_params_, ...)
+    "grid",              # single full GridSearchCV object
+    "best_estimator",    # grid.best_estimator_ (Pipeline)
     "df_cv_all", "df_cv_best", "df_test",
 ]
 
@@ -66,7 +69,7 @@ def load_artifacts(directory, g, keys=None):
 
 def artifacts_exist(directory, required=None):
     directory = Path(directory)
-    required = required or ["X_train", "X_test", "y_train", "y_test", "best_estimators", "grids"]
+    required = required or ["X_train", "X_test", "y_train", "y_test", "grid"]
     return all((directory / f"{k}.joblib").exists() for k in required)
 
 
@@ -130,10 +133,7 @@ def binarize_center_resize(imgs, target_size=(28, 28)):
 
 
 def save_processed_images(imgs, labels, out_dir, clear=True):
-    """
-    Write processed uint8 images to out_dir/{digit}/img_XXXXX.png
-    so you can browse them in Dataset/Processed_Data/0..9.
-    """
+    """Write processed uint8 images to out_dir/{digit}/img_XXXXX.png."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     labels = np.asarray(labels)
@@ -175,28 +175,84 @@ def normalize_flatten_split(imgs, y, test_size=0.20, seed=42):
     return X_train, X_test, y_train, y_test
 
 
-def get_experiment_setup():
-    return {
-        "NaiveBayes": {"model": GaussianNB(), "params": {}},
-        "LinearReg_OvA": {
-            "model": OneVsRestClassifier(LinearRegression()),
-            "params": {},
+def _model_family(estimator):
+    """Human-readable family name for an estimator instance."""
+    name = type(estimator).__name__
+    if name == "OneVsRestClassifier":
+        return "LinearReg_OvA"
+    if name == "GaussianNB":
+        return "NaiveBayes"
+    if name == "LogisticRegression":
+        return "LogisticReg"
+    if name == "MLPClassifier":
+        return "MLP"
+    return name
+
+
+def get_pipeline_and_param_grid():
+    """
+    One Pipeline + one multi-dict param_grid covering all model families.
+    GridSearchCV searches everything in a single large grid object.
+    """
+    pipe = Pipeline([
+        ("clf", MLPClassifier()),  # placeholder; replaced by each param_grid entry
+    ])
+    param_grid = [
+        {
+            "clf": [GaussianNB()],
         },
-        "LogisticReg": {
-            "model": LogisticRegression(solver="lbfgs", max_iter=2000, random_state=42),
-            "params": {"C": [1.0, 10.0]},
+        {
+            "clf": [OneVsRestClassifier(LinearRegression())],
         },
-        "MLP": {
-            "model": MLPClassifier(random_state=42, max_iter=2000),
-            "params": {
-                "hidden_layer_sizes": [
-                    (700, 200),
-                    (500, 100, 10),
-                    (300, 150, 100, 50, 10),
-                ],
-            },
+        {
+            "clf": [LogisticRegression(solver="lbfgs", max_iter=2000, random_state=42)],
+            "clf__C": [1.0, 10.0],
         },
-    }
+        {
+            "clf": [MLPClassifier(random_state=42, max_iter=2000)],
+            "clf__hidden_layer_sizes": [
+                (700, 200),
+                (500, 100, 10),
+                (300, 150, 100, 50, 10),
+            ],
+        },
+    ]
+    return pipe, param_grid
+
+
+def summarize_cv_results(grid):
+    """
+    Build df_cv_all (every combo) and df_cv_best (best row per model family)
+    from a fitted GridSearchCV over the Pipeline.
+    """
+    res = grid.cv_results_
+    rows = []
+    for i, params in enumerate(res["params"]):
+        est = params.get("clf")
+        family = _model_family(est) if est is not None else "Unknown"
+        hp = {k: v for k, v in params.items() if k != "clf"}
+        rows.append({
+            "Model": family,
+            "Params": hp if hp else {},
+            "Mean Accuracy": res["mean_test_accuracy"][i],
+            "Mean Precision": res["mean_test_precision"][i],
+            "Mean Recall": res["mean_test_recall"][i],
+            "Mean F1": res["mean_test_f1"][i],
+            "Std F1": res["std_test_f1"][i],
+            "Mean Fit Time (s)": res["mean_fit_time"][i],
+            "_rank": res["rank_test_f1"][i],
+        })
+    df_cv_all = pd.DataFrame(rows)
+
+    idx = df_cv_all.groupby("Model")["Mean F1"].idxmax()
+    df_cv_best = (
+        df_cv_all.loc[idx]
+        .drop(columns=["_rank"])
+        .sort_values("Mean F1", ascending=False)
+        .reset_index(drop=True)
+    )
+    df_cv_all = df_cv_all.drop(columns=["_rank"])
+    return df_cv_all, df_cv_best
 
 
 SCORING_METRICS = {
