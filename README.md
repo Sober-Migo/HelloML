@@ -15,21 +15,66 @@
 
 ---
 
-## Repository / Drive layout
+## Repository structure
 
-Designed for **Google Colab** with the project folder on Drive:
+```text
+HelloML/
+├── Dataset/
+│   ├── DIDA/0..9              ← raw images
+│   └── DIDA_Processed/0..9    ← preprocessed PNGs (from train)
+├── assets/
+│   ├── preprocessed_samples.png
+│   ├── cv_confusion_matrix.png
+│   └── cv_f1_by_model.png
+├── Saved Variables/           ← *.joblib after train (local / Drive; not required on GitHub)
+├── OCR_HelloML_Complete.ipynb
+├── helloml_pipeline.py
+└── README.md
+```
+
+> **Note:** If your clone still has `DIDA/` and `Processed_Data/` at the **repo root**, reorganize once with:
+>
+> ```bash
+> mkdir -p Dataset
+> git mv DIDA Dataset/DIDA
+> git mv Processed_Data Dataset/DIDA_Processed
+> git commit -m "Move data under Dataset/ as DIDA and DIDA_Processed"
+> git push
+> ```
+
+**Colab / Drive layout** (same names):
 
 ```text
 OCR_HelloML Project/
 ├── Dataset/
-│   ├── DIDA/0..9              ← raw images
-│   └── DIDA_Processed/0..9    ← preprocessed PNGs (written on train)
-├── Saved Variables/           ← *.joblib (grid, arrays, metrics)
+│   ├── DIDA/0..9
+│   └── DIDA_Processed/0..9
+├── Saved Variables/
 ├── helloml_pipeline.py
 └── OCR_HelloML_Complete.ipynb
 ```
 
-On GitHub the same files live at the repo root (`OCR_HelloML_Complete.ipynb`, `helloml_pipeline.py`, `README.md`, `assets/`).
+---
+
+## Assets (plots)
+
+| File | Description |
+|------|-------------|
+| [`assets/preprocessed_samples.png`](assets/preprocessed_samples.png) | One preprocessed sample per digit (0–9) |
+| [`assets/cv_f1_by_model.png`](assets/cv_f1_by_model.png) | Best CV F1 by model family |
+| [`assets/cv_confusion_matrix.png`](assets/cv_confusion_matrix.png) | 5-fold CV confusion matrix (best Pipeline) |
+
+### Preprocessed samples
+
+![Preprocessed samples](assets/preprocessed_samples.png)
+
+### Best CV F1 per model family
+
+![Best CV F1 per model family](assets/cv_f1_by_model.png)
+
+### CV confusion matrix (best Pipeline)
+
+![CV Confusion Matrix](assets/cv_confusion_matrix.png)
 
 ---
 
@@ -49,7 +94,7 @@ RUN_MODE = 1   # or 2
 ## Pipeline
 
 ```text
-Load DIDA
+Load Dataset/DIDA
   → Median blur → K-Means binarize → crop → scale → center on 28×28
   → Save PNGs to Dataset/DIDA_Processed/{0..9}/
   → Normalize + flatten (784) + stratified 80/20 split
@@ -68,10 +113,6 @@ Load DIDA
 | 4 | Scale longest side → 20 px | Size normalization |
 | 5 | Center on 28×28 canvas | Fixed spatial layout |
 | 6 | `/255` + flatten | Features in [0, 1], shape `(N, 784)` |
-
-### Preprocessed samples
-
-![Preprocessed samples](assets/preprocessed_samples.png)
 
 ---
 
@@ -96,20 +137,12 @@ Scoring: accuracy, precision_macro, recall_macro, **f1_macro** (refit).
 **Best CV F1:** **0.828** · **Test accuracy:** **0.832**  
 GridSearch: 7 candidates × 5 folds = 35 fits (~10 min on Colab).
 
-### Best CV F1 per model family
-
 | Model | Mean Acc | Mean F1 | Mean Fit Time (s) |
 |-------|----------|---------|-------------------|
 | **MLP** | 0.828 | **0.828** | ~69 |
 | LogisticReg | 0.636 | 0.636 | ~10 |
 | LinearReg_OvA | 0.613 | 0.611 | ~9 |
 | NaiveBayes | 0.484 | 0.484 | ~0.1 |
-
-![Best CV F1 per model family](assets/cv_f1_by_model.png)
-
-### CV confusion matrix (best Pipeline)
-
-![CV Confusion Matrix](assets/cv_confusion_matrix.png)
 
 ### Test set (held-out 2000 images)
 
@@ -126,7 +159,7 @@ Per-digit F1 is strongest on 1 and 6 (~0.86); 8 and 9 are the hardest (~0.79).
 
 ## Artifacts (`Saved Variables/`)
 
-After `RUN_MODE = 1`:
+Created after `RUN_MODE = 1` (usually on Drive / local, optional on GitHub):
 
 | File | Contents |
 |------|----------|
@@ -136,7 +169,7 @@ After `RUN_MODE = 1`:
 | `X_proc.joblib`, `y.joblib` | Preprocessed images + labels |
 | `df_cv_all.joblib`, `df_cv_best.joblib`, `df_test.joblib` | Metric tables |
 
-With `RUN_MODE = 2` you can still use:
+With `RUN_MODE = 2`:
 
 ```python
 grid.best_params_
@@ -148,12 +181,12 @@ grid.best_estimator_.predict(X_test)
 
 ## Quick start (Google Colab)
 
-1. Put the project under Drive as `MyDrive/OCR_HelloML Project/` with `Dataset/DIDA/0..9` filled.
+1. Project under Drive: `MyDrive/OCR_HelloML Project/` with `Dataset/DIDA/0..9`.
 2. Open `OCR_HelloML_Complete.ipynb` in Colab.
-3. Set `RUN_MODE = 1` and run all cells (first run trains and writes artifacts + PNGs).
-4. Later sessions: set `RUN_MODE = 2` to skip training.
+3. `RUN_MODE = 1` → train, write `DIDA_Processed` + `Saved Variables`.
+4. Later: `RUN_MODE = 2` to skip training.
 
-Local / non-Colab: comment out the `drive.mount` cell and set `ROOT_DIR` / `os.chdir` to your project folder.
+Local / non-Colab: comment out `drive.mount` and point `ROOT_DIR` at the project folder.
 
 ---
 
@@ -163,4 +196,6 @@ Local / non-Colab: comment out the `drive.mount` cell and set `ROOT_DIR` / `os.c
 numpy pandas scikit-learn opencv-python matplotlib seaborn joblib
 ```
 
-On Colab these are available or installable with `pip`.
+## Author
+
+**Ahmed Magdy** ([@Sober-Migo](https://github.com/Sober-Migo))
