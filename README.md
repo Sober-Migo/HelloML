@@ -32,16 +32,6 @@ HelloML/
 └── README.md
 ```
 
-> **Note:** If your clone still has `DIDA/` and `Processed_Data/` at the **repo root**, reorganize once with:
->
-> ```bash
-> mkdir -p Dataset
-> git mv DIDA Dataset/DIDA
-> git mv Processed_Data Dataset/DIDA_Processed
-> git commit -m "Move data under Dataset/ as DIDA and DIDA_Processed"
-> git push
-> ```
-
 **Colab / Drive layout** (same names):
 
 ```text
